@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Damas Brasileira - Menu</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: green;
+            color: white;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            text-align: center;
+        }
+        
+        .container {
+            max-width: 800px;
+            padding: 20px;
+            background-color: rgba(0, 0, 0, 0.7);
+            border-radius: 15px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+        }
+        
+        h1 {
+            color: #f1c40f;
+            margin-bottom: 30px;
+            font-size: 2.5rem;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+        
+        .game-options {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 30px;
+            margin: 40px 0;
+        }
+        
+        .game-card {
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            border-radius: 10px;
+            padding: 20px;
+            width: 250px;
+            transition: transform 0.3s, box-shadow 0.3s;
+            cursor: pointer;
+            text-decoration: none;
+            color: white;
+        }
+        
+        .game-card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.4);
+            background: linear-gradient(135deg, #2980b9, #3498db);
+        }
+        
+        .game-card h2 {
+            margin-top: 0;
+            font-size: 1.8rem;
+            color: #f1c40f;
+        }
+        
+        .game-card p {
+            font-size: 1.1rem;
+            margin-bottom: 20px;
+        }
+        
+        .btn {
+            display: inline-block;
+            background-color: #e74c3c;
+            color: white;
+            padding: 12px 25px;
+            border-radius: 50px;
+            font-weight: bold;
+            text-decoration: none;
+            transition: background-color 0.3s;
+        }
+        
+        .btn:hover {
+            background-color: #c0392b;
+        }
+        
+        .rules {
+            margin-top: 40px;
+            background-color: rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            border-radius: 10px;
+            max-width: 600px;
+        }
+        
+        .rules h3 {
+            color: #f1c40f;
+            margin-top: 0;
+        }
+        
+        .rules ul {
+            text-align: left;
+            padding-left: 20px;
+        }
+        
+        @media (max-width: 600px) {
+            .game-options {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .game-card {
+                width: 80%;
+            }
+            
+            h1 {
+                font-size: 2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Jogo de Damas Brasileira</h1>
+        
+        <div class="game-options">
+            <a href="damaVSia.html" class="game-card">
+                <h2>Single Player</h2>
+                <p>Jogue contra a inteligência artificial</p>
+                <span class="btn">Jogar</span>
+            </a>
+            
+            <a href="dama2Players.html" class="game-card">
+                <h2>Multiplayer</h2>
+                <p>Jogue com um amigo no mesmo computador</p>
+                <span class="btn">Jogar</span>
+            </a>
+        </div>
+        
+        <div class="rules">
+            <h3>Regras Brasileiras:</h3>
+            <ul>
+                <li><strong>Peças comuns</strong>: Movem 1 casa para frente, capturam para frente/trás</li>
+                <li><strong>Damas (👑)</strong>: Movem quantas casas quiserem na diagonal</li>
+                <li><strong>Capturas são obrigatórias</strong> (prioridade para capturas múltiplas)</li>
+                <li>Peça vira dama ao chegar na última linha</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>

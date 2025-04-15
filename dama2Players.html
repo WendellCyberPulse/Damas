@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <title>Damas Multiplayer Brasil</title>
+  <style>
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background: green;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 20px;
+    }
+    h1 {
+      color: white;
+      margin-bottom: 10px;
+    }
+    .game-container {
+      display: flex;
+      gap: 30px;
+      margin-top: 20px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .board {
+      display: grid;
+      grid-template-columns: repeat(8, 60px);
+      grid-template-rows: repeat(8, 60px);
+      border: 4px solid #333;
+      box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+      font-size: 40px;
+      text-align: center;
+      user-select: none;
+    }
+    .square {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      width: 60px;
+      height: 60px;
+      cursor: pointer;
+      transition: all 0.2s;
+      position: relative;
+    }
+    .white { background-color: yellow; }
+    .black { background-color: green; }
+    .selected {
+      outline: 3px solid #ff5252;
+      transform: scale(0.95);
+      box-shadow: inset 0 0 10px rgba(0,0,0,0.2);
+    }
+    .highlight {
+      background-color: rgba(46, 204, 113, 0.4);
+      box-shadow: inset 0 0 15px rgba(39, 174, 96, 0.6);
+    }
+    .capture-highlight {
+      background-color: rgba(231, 76, 60, 0.4);
+      box-shadow: inset 0 0 15px rgba(192, 57, 43, 0.6);
+    }
+    .status-panel {
+      background: yellow;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+      min-width: 200px;
+      text-align: center;
+    }
+    .turn-indicator {
+      font-size: 24px;
+      font-weight: bold;
+      margin-bottom: 20px;
+    }
+    .piece-count {
+      display: flex;
+      justify-content: space-around;
+      margin-bottom: 20px;
+    }
+    .count {
+      font-size: 20px;
+    }
+    .controls {
+      margin-top: 20px;
+    }
+    button {
+      padding: 10px 15px;
+      background: #3498db;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-weight: bold;
+      transition: background 0.2s;
+    }
+    button:hover {
+      background: #2980b9;
+    }
+    .rules {
+      margin-top: 30px;
+      max-width: 600px;
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+    }
+    @media (max-width: 768px) {
+      .board {
+        grid-template-columns: repeat(8, 40px);
+        grid-template-rows: repeat(8, 40px);
+        font-size: 30px;
+      }
+      .square {
+        width: 40px;
+        height: 40px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>Jogo de Damas Multiplayer</h1>
+  <div class="game-container">
+    <div class="board" id="board"></div>
+    <div class="status-panel">
+      <div class="turn-indicator" id="turn-indicator">Vez das Brancas</div>
+      <div class="piece-count">
+        <div class="count">⚪: <span id="white-count">12</span></div>
+        <div class="count">⚫: <span id="black-count">12</span></div>
+      </div>
+      <div class="controls">
+        <button id="restart-btn">Reiniciar Jogo</button>
+      </div>
+    </div>
+  </div>
+  <div class="rules">
+    <h3>Regras Brasileiras:</h3>
+    <ul>
+      <li><strong>Peças comuns</strong>: Movem 1 casa para frente, capturam para frente/trás</li>
+      <li><strong>Damas (👑)</strong>: Movem quantas casas quiserem na diagonal</li>
+      <li><strong>Capturas são obrigatórias</strong> (prioridade para capturas múltiplas)</li>
+      <li>Peça vira dama ao chegar na última linha</li>
+    </ul>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const board = document.getElementById("board");
+      const turnIndicator = document.getElementById("turn-indicator");
+      const whiteCount = document.getElementById("white-count");
+      const blackCount = document.getElementById("black-count");
+      const restartBtn = document.getElementById("restart-btn");
+      
+      let selected = null;
+      let turn = "white";
+      let pieces = [];
+      let forcedCaptures = [];
+      let gameOver = false;
+
+      // Inicializa o jogo
+      function initGame() {
+        createBoard();
+        renderBoard();
+        updateStatus();
+        restartBtn.addEventListener('click', resetGame);
+      }
+
+      // Cria o tabuleiro inicial
+      function createBoard() {
+        pieces = Array(8).fill().map(() => Array(8).fill(""));
+        for (let row = 0; row < 8; row++) {
+          for (let col = 0; col < 8; col++) {
+            if ((row + col) % 2 === 1) { // Apenas casas pretas têm peças
+              if (row < 3) pieces[row][col] = "⚫"; // Peças pretas (topo)
+              if (row > 4) pieces[row][col] = "⚪"; // Peças brancas (base)
+            }
+          }
+        }
+      }
+
+      // Renderiza o tabuleiro
+      function renderBoard() {
+        board.innerHTML = "";
+        forcedCaptures = findForcedCaptures();
+        
+        for (let row = 0; row < 8; row++) {
+          for (let col = 0; col < 8; col++) {
+            const square = document.createElement("div");
+            square.className = `square ${(row + col) % 2 === 0 ? "white" : "black"}`;
+            
+            // Exibe peça ou dama
+            const piece = pieces[row][col];
+            square.textContent = typeof piece === "object" ? "👑" : piece;
+            
+            square.dataset.row = row;
+            square.dataset.col = col;
+            
+            // Destaca peça selecionada
+            if (selected && selected.row === row && selected.col === col) {
+              square.classList.add("selected");
+            }
+            
+            square.addEventListener("click", () => handleClick(row, col, square));
+            board.appendChild(square);
+          }
+        }
+        updatePieceCount();
+      }
+
+      // Atualiza a interface de status
+      function updateStatus() {
+        turnIndicator.textContent = turn === "white" ? "Vez das Brancas ⚪" : "Vez das Pretas ⚫";
+        turnIndicator.style.color = turn === "white" ? "#333" : "#333";
+      }
+
+      // Atualiza contador de peças
+      function updatePieceCount() {
+        let white = 0, black = 0;
+        for (let row = 0; row < 8; row++) {
+          for (let col = 0; col < 8; col++) {
+            const piece = pieces[row][col];
+            if (piece === "⚪" || (typeof piece === "object" && piece.color === "white")) white++;
+            if (piece === "⚫" || (typeof piece === "object" && piece.color === "black")) black++;
+          }
+        }
+        whiteCount.textContent = white;
+        blackCount.textContent = black;
+        
+        // Verifica fim de jogo
+        if (white === 0 || black === 0) {
+          gameOver = true;
+          turnIndicator.textContent = white === 0 ? "Pretas Ganharam! ⚫" : "Brancas Ganharam! ⚪";
+        }
+      }
+
+      // Encontra capturas obrigatórias
+      function findForcedCaptures() {
+        const captures = [];
+        for (let row = 0; row < 8; row++) {
+          for (let col = 0; col < 8; col++) {
+            const piece = pieces[row][col];
+            const isCurrentPlayer = 
+              (turn === "white" && (piece === "⚪" || (typeof piece === "object" && piece.color === "white"))) || 
+              (turn === "black" && (piece === "⚫" || (typeof piece === "object" && piece.color === "black")));
+            
+            if (isCurrentPlayer) {
+              const pieceCaptures = getValidMoves(row, col, true);
+              if (pieceCaptures.some(move => move.isCapture)) {
+                captures.push({row, col, moves: pieceCaptures.filter(move => move.isCapture)});
+              }
+            }
+          }
+        }
+        return captures;
+      }
+
+      // Obtém movimentos válidos para uma peça
+      function getValidMoves(row, col, checkCapturesOnly = false) {
+        const piece = pieces[row][col];
+        if (!piece) return [];
+        
+        const isWhite = piece === "⚪" || (typeof piece === "object" && piece.color === "white");
+        const isBlack = piece === "⚫" || (typeof piece === "object" && piece.color === "black");
+        const isKing = typeof piece === "object";
+        const moves = [];
+        
+        // Direções possíveis (todas diagonais)
+        const directions = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
+
+        // Verifica capturas primeiro (obrigatórias)
+        for (const [dx, dy] of directions) {
+          // Para peças comuns (verifica apenas 1 casa de distância)
+          if (!isKing) {
+            const nx = row + dx;
+            const ny = col + dy;
+            const jx = row + 2 * dx;
+            const jy = col + 2 * dy;
+            
+            if (nx >= 0 && nx < 8 && ny >= 0 && ny < 8 && 
+                jx >= 0 && jx < 8 && jy >= 0 && jy < 8 &&
+                isOpponent(row, col, nx, ny) && 
+                pieces[jx][jy] === "") {
+              moves.push({row: jx, col: jy, isCapture: true, captured: {row: nx, col: ny}});
+            }
+          } 
+          // Para damas (verifica múltiplas casas)
+          else {
+            let nx = row + dx;
+            let ny = col + dy;
+            let foundOpponent = false;
+            
+            while (nx >= 0 && nx < 8 && ny >= 0 && ny < 8) {
+              if (pieces[nx][ny] !== "") {
+                if (isOpponent(row, col, nx, ny) && !foundOpponent) {
+                  foundOpponent = true;
+                } else {
+                  break; // Bloqueado por segunda peça
+                }
+              } else if (foundOpponent) {
+                moves.push({row: nx, col: ny, isCapture: true, captured: {row: nx - dx, col: ny - dy}});
+              }
+              nx += dx;
+              ny += dy;
+            }
+          }
+        }
+
+        // Se estamos apenas checando capturas ou se já encontramos capturas, retorna
+        if (checkCapturesOnly || moves.some(m => m.isCapture)) {
+          return moves;
+        }
+
+        // Movimentos simples (sem captura)
+        if (!isKing) {
+          // Peças comuns: apenas para frente
+          const moveDirections = isWhite ? [[-1, -1], [-1, 1]] : [[1, -1], [1, 1]];
+          for (const [dx, dy] of moveDirections) {
+            const nx = row + dx;
+            const ny = col + dy;
+            if (nx >= 0 && nx < 8 && ny >= 0 && ny < 8 && pieces[nx][ny] === "") {
+              moves.push({row: nx, col: ny, isCapture: false});
+            }
+          }
+        } else {
+          // Damas: movimento livre na diagonal
+          for (const [dx, dy] of directions) {
+            let nx = row + dx;
+            let ny = col + dy;
+            while (nx >= 0 && nx < 8 && ny >= 0 && ny < 8 && pieces[nx][ny] === "") {
+              moves.push({row: nx, col: ny, isCapture: false});
+              nx += dx;
+              ny += dy;
+            }
+          }
+        }
+        
+        return moves;
+      }
+
+      // Verifica se é peça adversária
+      function isOpponent(fromRow, fromCol, toRow, toCol) {
+        const piece1 = pieces[fromRow][fromCol];
+        const piece2 = pieces[toRow][toCol];
+        if (!piece1 || !piece2) return false;
+        
+        const color1 = piece1 === "⚪" ? "white" : 
+                      piece1 === "⚫" ? "black" : 
+                      piece1.color;
+        
+        const color2 = piece2 === "⚪" ? "white" : 
+                      piece2 === "⚫" ? "black" : 
+                      piece2.color;
+        
+        return color1 !== color2;
+      }
+
+      // Promove peça a dama
+      function promoteToKing(row, col) {
+        const piece = pieces[row][col];
+        if (piece === "⚪" && row === 0) {
+          pieces[row][col] = { type: "king", color: "white" };
+        } else if (piece === "⚫" && row === 7) {
+          pieces[row][col] = { type: "king", color: "black" };
+        }
+      }
+
+      // Destaca movimentos válidos
+      function highlightValidMoves(row, col) {
+        const validMoves = getValidMoves(row, col);
+        const squares = board.querySelectorAll('.square');
+        
+        squares.forEach(square => {
+          const r = parseInt(square.dataset.row);
+          const c = parseInt(square.dataset.col);
+          const move = validMoves.find(m => m.row === r && m.col === c);
+          
+          if (move) {
+            square.classList.add(move.isCapture ? "capture-highlight" : "highlight");
+          }
+        });
+      }
+
+      // Manipula cliques no tabuleiro
+      function handleClick(row, col, element) {
+        if (gameOver) return;
+        
+        const piece = pieces[row][col];
+        
+        // Seleciona uma peça
+        if (!selected) {
+          const isCurrentPlayer = 
+            (turn === "white" && (piece === "⚪" || (typeof piece === "object" && piece.color === "white"))) || 
+            (turn === "black" && (piece === "⚫" || (typeof piece === "object" && piece.color === "black")));
+          
+          if (isCurrentPlayer) {
+            // Verifica capturas obrigatórias
+            if (forcedCaptures.length > 0) {
+              const hasForcedCapture = forcedCaptures.some(fc => fc.row === row && fc.col === col);
+              if (!hasForcedCapture) return;
+            }
+            
+            selected = { row, col };
+            renderBoard();
+            highlightValidMoves(row, col);
+          }
+          return;
+        }
+        
+        // Move a peça selecionada
+        const { row: fromRow, col: fromCol } = selected;
+        const validMoves = getValidMoves(fromRow, fromCol);
+        const move = validMoves.find(m => m.row === row && m.col === col);
+        
+        if (move) {
+          // Executa o movimento
+          pieces[row][col] = pieces[fromRow][fromCol];
+          pieces[fromRow][fromCol] = "";
+          
+          // Remove peça capturada
+          if (move.isCapture && move.captured) {
+            pieces[move.captured.row][move.captured.col] = "";
+          }
+          
+          // Promove a dama
+          promoteToKing(row, col);
+          
+          // Verifica capturas múltiplas
+          const nextCaptures = getValidMoves(row, col, true).filter(m => m.isCapture);
+          if (move.isCapture && nextCaptures.length > 0) {
+            selected = { row, col };
+          } else {
+            selected = null;
+            turn = turn === "white" ? "black" : "white";
+          }
+          
+          renderBoard();
+          updateStatus();
+        } else {
+          selected = null;
+          renderBoard();
+        }
+      }
+
+      // Reinicia o jogo
+      function resetGame() {
+        selected = null;
+        turn = "white";
+        gameOver = false;
+        createBoard();
+        renderBoard();
+        updateStatus();
+      }
+
+      // Inicia o jogo
+      initGame();
+    });
+  </script>
+</body>
+</html>

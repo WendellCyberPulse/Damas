@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Damas SinglePlayer Brasil</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: green;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 {
+            color: white;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        .game-container {
+            display: flex;
+            gap: 30px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .board {
+            display: grid;
+            grid-template-columns: repeat(8, 60px);
+            grid-template-rows: repeat(8, 60px);
+            border: 4px solid #333;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            font-size: 40px;
+            text-align: center;
+            user-select: none;
+            background: white;
+        }
+        .square {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 60px;
+            height: 60px;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+        }
+        .white { background-color: yellow; }
+        .black { background-color: darkgreen; }
+        .selected {
+            outline: 3px solid #ff5252;
+            transform: scale(0.95);
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.2);
+        }
+        .highlight {
+            background-color: rgba(46, 204, 113, 0.4);
+            box-shadow: inset 0 0 15px rgba(39, 174, 96, 0.6);
+        }
+        .capture-highlight {
+            background-color: rgba(231, 76, 60, 0.4);
+            box-shadow: inset 0 0 15px rgba(192, 57, 43, 0.6);
+        }
+        .status-panel {
+            background: yellow;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+            min-width: 200px;
+            text-align: center;
+        }
+        .turn-indicator {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            color: #2c3e50;
+        }
+        .piece-count {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 20px;
+        }
+        .count {
+            font-size: 20px;
+            color: #34495e;
+        }
+        .controls {
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        button {
+            padding: 10px 15px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background: #2980b9;
+        }
+        @media (max-width: 768px) {
+            .board {
+                grid-template-columns: repeat(8, 40px);
+                grid-template-rows: repeat(8, 40px);
+                font-size: 30px;
+            }
+            .square {
+                width: 40px;
+                height: 40px;
+            }
+            h1 {
+                font-size: 1.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>Jogo de Damas SinglePlayer</h1>
+    <div class="game-container">
+        <div class="board" id="board"></div>
+        <div class="status-panel">
+            <div class="turn-indicator" id="turn-indicator">Sua vez (Brancas ⚪)</div>
+            <div class="piece-count">
+                <div class="count">Você (⚪): <span id="white-count">12</span></div>
+                <div class="count">IA (⚫): <span id="black-count">12</span></div>
+            </div>
+            <div class="controls">
+                <button id="restart-btn">Novo Jogo</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class DamasGame {
+            constructor() {
+                this.boardElement = document.getElementById('board');
+                this.turnIndicator = document.getElementById('turn-indicator');
+                this.whiteCount = document.getElementById('white-count');
+                this.blackCount = document.getElementById('black-count');
+                this.restartBtn = document.getElementById('restart-btn');
+                
+                this.selectedPiece = null;
+                this.currentTurn = 'white';
+                this.pieces = Array(8).fill().map(() => Array(8).fill(null));
+                this.gameOver = false;
+                
+                this.initGame();
+            }
+
+            initGame() {
+                this.setupBoard();
+                this.addEventListeners();
+                this.updateGameInfo();
+            }
+
+            setupBoard() {
+                for (let row = 0; row < 8; row++) {
+                    for (let col = 0; col < 8; col++) {
+                        if ((row + col) % 2 === 1) {
+                            if (row < 3) this.pieces[row][col] = { type: 'pawn', color: 'black' };
+                            if (row > 4) this.pieces[row][col] = { type: 'pawn', color: 'white' };
+                        }
+                    }
+                }
+                this.renderBoard();
+            }
+
+            renderBoard() {
+                this.boardElement.innerHTML = '';
+                for (let row = 0; row < 8; row++) {
+                    for (let col = 0; col < 8; col++) {
+                        const square = document.createElement('div');
+                        square.className = `square ${(row + col) % 2 === 0 ? 'white' : 'black'}`;
+                        
+                        const piece = this.pieces[row][col];
+                        if (piece) {
+                            square.textContent = piece.type === 'king' ? '👑' : piece.color === 'white' ? '⚪' : '⚫';
+                        }
+                        
+                        square.dataset.row = row;
+                        square.dataset.col = col;
+                        
+                        if (this.selectedPiece?.row === row && this.selectedPiece?.col === col) {
+                            square.classList.add('selected');
+                        }
+                        
+                        square.addEventListener('click', () => this.handleSquareClick(row, col));
+                        this.boardElement.appendChild(square);
+                    }
+                }
+            }
+
+            handleSquareClick(row, col) {
+                if (this.gameOver || this.currentTurn !== 'white') return;
+
+                const piece = this.pieces[row][col];
+                
+                if (!this.selectedPiece) {
+                    if (piece?.color === 'white') {
+                        if (this.hasForcedCaptures() && !this.isForcedCapture(row, col)) return;
+                        this.selectedPiece = { row, col };
+                        this.highlightValidMoves(row, col);
+                    }
+                } else {
+                    const moves = this.getValidMoves(this.selectedPiece.row, this.selectedPiece.col);
+                    const move = moves.find(m => m.row === row && m.col === col);
+                    
+                    if (move) {
+                        this.makeMove(move);
+                        const nextCaptures = this.getValidMoves(row, col, true).filter(m => m.isCapture);
+                        
+                        if (move.isCapture && nextCaptures.length > 0) {
+                            this.selectedPiece = { row, col };
+                            this.highlightValidMoves(row, col);
+                        } else {
+                            this.selectedPiece = null;
+                            this.currentTurn = 'black';
+                            this.aiMove();
+                        }
+                        this.renderBoard();
+                        this.updateGameInfo();
+                    } else {
+                        this.selectedPiece = null;
+                        this.renderBoard();
+                    }
+                }
+            }
+
+            getValidMoves(row, col, checkCapturesOnly = false) {
+                const piece = this.pieces[row][col];
+                if (!piece) return [];
+                
+                const moves = [];
+                const isKing = piece.type === 'king';
+                const directions = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
+
+                // Verificar capturas (todas direções)
+                for (const [dx, dy] of directions) {
+                    if (isKing) {
+                        let foundOpponent = false;
+                        let nx = row + dx;
+                        let ny = col + dy;
+                        
+                        while (this.isValidPosition(nx, ny)) {
+                            if (!foundOpponent) {
+                                if (this.pieces[nx][ny]?.color !== piece.color && this.pieces[nx][ny] !== null) {
+                                    foundOpponent = true;
+                                } else if (this.pieces[nx][ny]?.color === piece.color) {
+                                    break;
+                                }
+                            } else {
+                                if (this.pieces[nx][ny] === null) {
+                                    moves.push({
+                                        row: nx,
+                                        col: ny,
+                                        isCapture: true,
+                                        captured: { row: nx - dx, col: ny - dy }
+                                    });
+                                } else {
+                                    break;
+                                }
+                            }
+                            nx += dx;
+                            ny += dy;
+                        }
+                    } else {
+                        const nx = row + dx;
+                        const ny = col + dy;
+                        const jx = row + (dx * 2);
+                        const jy = col + (dy * 2);
+                        
+                        if (this.isValidPosition(jx, jy) &&
+                            this.pieces[nx][ny]?.color !== piece.color &&
+                            this.pieces[nx][ny] !== null &&
+                            this.pieces[jx][jy] === null) {
+                            moves.push({
+                                row: jx,
+                                col: jy,
+                                isCapture: true,
+                                captured: { row: nx, col: ny }
+                            });
+                        }
+                    }
+                }
+
+                if (moves.length > 0 || checkCapturesOnly) return moves;
+
+                // Movimentos simples (apenas para frente)
+                if (isKing) {
+                    for (const [dx, dy] of directions) {
+                        let nx = row + dx;
+                        let ny = col + dy;
+                        while (this.isValidPosition(nx, ny) && this.pieces[nx][ny] === null) {
+                            moves.push({ row: nx, col: ny, isCapture: false });
+                            nx += dx;
+                            ny += dy;
+                        }
+                    }
+                } else {
+                    const forwardDirs = piece.color === 'white' 
+                        ? [[-1, -1], [-1, 1]] 
+                        : [[1, -1], [1, 1]];
+                        
+                    for (const [dx, dy] of forwardDirs) {
+                        const nx = row + dx;
+                        const ny = col + dy;
+                        if (this.isValidPosition(nx, ny) && this.pieces[nx][ny] === null) {
+                            moves.push({ row: nx, col: ny, isCapture: false });
+                        }
+                    }
+                }
+
+                return moves;
+            }
+
+            makeMove(move) {
+                const from = this.selectedPiece;
+                this.pieces[move.row][move.col] = this.pieces[from.row][from.col];
+                this.pieces[from.row][from.col] = null;
+                
+                if (move.isCapture) {
+                    this.pieces[move.captured.row][move.captured.col] = null;
+                }
+                
+                this.checkPromotion(move.row, move.col);
+            }
+
+            checkPromotion(row, col) {
+                const piece = this.pieces[row][col];
+                if (piece?.type === 'pawn') {
+                    if ((piece.color === 'white' && row === 0) || (piece.color === 'black' && row === 7)) {
+                        piece.type = 'king';
+                    }
+                }
+            }
+
+            aiMove() {
+                const aiPieces = [];
+                for (let row = 0; row < 8; row++) {
+                    for (let col = 0; col < 8; col++) {
+                        if (this.pieces[row][col]?.color === 'black') {
+                            aiPieces.push({ row, col });
+                        }
+                    }
+                }
+
+                const allMoves = aiPieces.flatMap(piece => 
+                    this.getValidMoves(piece.row, piece.col).map(move => ({
+                        from: piece,
+                        to: move
+                    }))
+                );
+
+                if (allMoves.length === 0) {
+                    this.endGame('Você venceu! ⚪');
+                    return;
+                }
+
+                const captureMoves = allMoves.filter(m => m.to.isCapture);
+                const bestMove = captureMoves.length > 0 
+                    ? captureMoves[0] 
+                    : allMoves[Math.floor(Math.random() * allMoves.length)];
+
+                this.executeAIMove(bestMove);
+            }
+
+            executeAIMove(move) {
+                this.pieces[move.to.row][move.to.col] = this.pieces[move.from.row][move.from.col];
+                this.pieces[move.from.row][move.from.col] = null;
+                
+                if (move.to.isCapture) {
+                    this.pieces[move.to.captured.row][move.to.captured.col] = null;
+                }
+                
+                this.checkPromotion(move.to.row, move.to.col);
+                this.currentTurn = 'white';
+                this.renderBoard();
+                this.updateGameInfo();
+            }
+
+            highlightValidMoves(row, col) {
+                const moves = this.getValidMoves(row, col);
+                const hasForcedCaptures = this.hasForcedCaptures();
+                
+                this.boardElement.querySelectorAll('.square').forEach(square => {
+                    const r = parseInt(square.dataset.row);
+                    const c = parseInt(square.dataset.col);
+                    const isMove = moves.some(m => m.row === r && m.col === c);
+                    const isCapture = moves.some(m => m.row === r && m.col === c && m.isCapture);
+                    
+                    square.classList.remove('highlight', 'capture-highlight');
+                    if (isMove) {
+                        if (hasForcedCaptures && !isCapture) return;
+                        square.classList.add(isCapture ? 'capture-highlight' : 'highlight');
+                    }
+                });
+            }
+
+            updateGameInfo() {
+                let white = 0, black = 0;
+                this.pieces.forEach(row => row.forEach(piece => {
+                    if (piece?.color === 'white') white++;
+                    if (piece?.color === 'black') black++;
+                }));
+                
+                this.whiteCount.textContent = white;
+                this.blackCount.textContent = black;
+                
+                this.turnIndicator.textContent = this.currentTurn === 'white' 
+                    ? 'Sua vez (Brancas ⚪)' 
+                    : 'IA pensando... (Pretas ⚫)';
+
+                if (white === 0 || black === 0) {
+                    this.endGame(white === 0 ? 'IA venceu! ⚫' : 'Você venceu! ⚪');
+                }
+            }
+
+            hasForcedCaptures() {
+                for (let row = 0; row < 8; row++) {
+                    for (let col = 0; col < 8; col++) {
+                        if (this.pieces[row][col]?.color === 'white' && 
+                            this.getValidMoves(row, col, true).length > 0) {
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            }
+
+            isForcedCapture(row, col) {
+                return this.getValidMoves(row, col, true).length > 0;
+            }
+
+            isValidPosition(row, col) {
+                return row >= 0 && row < 8 && col >= 0 && col < 8;
+            }
+
+            endGame(message) {
+                this.gameOver = true;
+                this.turnIndicator.textContent = message;
+            }
+
+            addEventListeners() {
+                this.restartBtn.addEventListener('click', () => {
+                    this.selectedPiece = null;
+                    this.currentTurn = 'white';
+                    this.gameOver = false;
+                    this.pieces = Array(8).fill().map(() => Array(8).fill(null));
+                    this.setupBoard();
+                    this.updateGameInfo();
+                });
+            }
+        }
+
+        new DamasGame();
+    </script>
+</body>
+</html>
