@@ -2,7 +2,7 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <title>Damas SinglePlayer Brasil</title>
+    <title>Damas com IA Adaptativa</title>
     <style>
         body {
             display: flex;
@@ -103,6 +103,43 @@
         button:hover {
             background: #2980b9;
         }
+        .ai-status {
+            background: #2c3e50;
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+        }
+        .difficulty-level {
+            font-size: 1.2em;
+            color: #e67e22;
+            margin: 10px 0;
+        }
+        .learning-bar {
+            height: 10px;
+            background: #ecf0f1;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+        .learning-progress {
+            height: 100%;
+            background: #27ae60;
+            width: 0%;
+            transition: width 0.5s ease;
+        }
+        .ai-move-history {
+            max-height: 150px;
+            overflow-y: auto;
+            margin-top: 10px;
+            padding: 5px;
+            background: #f1f2f6;
+            border-radius: 5px;
+            color: #2c3e50;
+        }
+        @keyframes glow {
+            from { box-shadow: 0 0 5px #27ae60; }
+            to { box-shadow: 0 0 20px #27ae60; }
+        }
         @media (max-width: 768px) {
             .board {
                 grid-template-columns: repeat(8, 40px);
@@ -116,6 +153,39 @@
             h1 {
                 font-size: 1.5rem;
             }
+        }
+        /* Adicionar novos estilos para caminho */
+        .path-marker {
+            position: absolute;
+            width: 15px;
+            height: 15px;
+            background: #27ae60;
+            border-radius: 50%;
+            bottom: 5px;
+            animation: pulse 1s infinite;
+        }
+
+        .capture-path {
+            background: #e74c3c;
+            width: 20px;
+            height: 20px;
+            bottom: 3px;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.8); opacity: 0.8; }
+            50% { transform: scale(1.2); opacity: 1; }
+            100% { transform: scale(0.8); opacity: 0.8; }
+        }
+
+        .move-preview {
+            position: absolute;
+            width: 40%;
+            height: 40%;
+            background: rgba(39, 174, 96, 0.3);
+            border-radius: 50%;
+            top: 30%;
+            left: 30%;
         }
     </style>
 </head>
@@ -131,11 +201,183 @@
             </div>
             <div class="controls">
                 <button id="restart-btn">Novo Jogo</button>
+                <button id="reset-ai">Resetar IA</button>
+            </div>
+            <div class="ai-status">
+                <div class="difficulty-level">Nível: <span id="ai-level">Iniciante</span></div>
+                <div class="learning-bar">
+                    <div class="learning-progress" id="learning-progress"></div>
+                </div>
+                <div class="ai-move-history" id="ai-moves"></div>
             </div>
         </div>
     </div>
 
     <script>
+        class DamaAI {
+            constructor() {
+                this.qTable = new Map();
+                this.learningRate = 0.85;
+                this.discountFactor = 0.95;
+                this.epsilon = 1.0;
+                this.epsilonDecay = 0.98;
+                this.memory = [];
+                this.totalLearned = 0;
+                this.levels = [
+                { 
+                    name: "Iniciante",
+                    threshold: 0,
+                    depth: 1,
+                    epsilon: 1.0,
+                    learningRate: 0.6
+                },
+                {
+                    name: "Intermediário",
+                    threshold: 30,
+                    depth: 3,
+                    epsilon: 0.5,
+                    learningRate: 0.7
+                },
+                {
+                    name: "Avançado",
+                    threshold: 100,
+                    depth: 4,
+                    epsilon: 0.4,
+                    learningRate: 0.7
+                },
+                {
+                    name: "Especialista",
+                    threshold: 250,
+                    depth: 5,
+                    epsilon: 0.1,
+                    learningRate: 0.9
+                }
+            ];
+
+            this.currentLevel = this.levels[0];
+
+            }
+
+            getMoveDepth() {
+                switch (this.currentLevel.name) {
+                    case "Iniciante":
+                        return 1;
+                    case "Intermediário":
+                        return 3;
+                    case "Avançado":
+                        return 5;
+                    case "Especialista":
+                        return 7;
+                    default:
+                        return 1;
+                }
+            }
+            
+
+            async getMove(gameState) {
+                const validMoves = gameState.getAllValidMoves('black');
+                if (validMoves.length === 0) return null;
+
+                const depth = this.getMoveDepth();
+
+                if (Math.random() < this.epsilon) {
+                    // Exploração: escolhe um movimento aleatório
+                    return validMoves[Math.floor(Math.random() * validMoves.length)];
+                } else {
+                    // Explotação: escolhe o movimento com maior valor Q
+                    let bestMove = null;
+                    let maxQ = -Infinity;
+
+                    for (const move of validMoves) {
+                        const stateKey = this.hashState(gameState.pieces);
+                        const q = this.getQValue(stateKey, move);
+                        if (q > maxQ) {
+                            maxQ = q;
+                            bestMove = move;
+                        }
+                    }
+
+                    return bestMove || validMoves[Math.floor(Math.random() * validMoves.length)];
+                }
+            }
+
+            updateQValue(reward, newState) {
+                //let learnedCount = 0;
+                this.memory.forEach(([stateKey, move]) => {
+                    const oldQ = this.getQValue(stateKey, move);
+                    const nextMaxQ = this.getMaxQ(newState);
+                    const newQ = oldQ + this.learningRate * (reward + this.discountFactor * nextMaxQ - oldQ);
+                    this.setQValue(stateKey, move, newQ);
+                   // learnedCount++;
+                });
+                this.epsilon = Math.max(this.currentLevel.epsilon, this.epsilon * this.epsilonDecay);
+                this.totalLearned += 1;
+                this.updateDifficultyLevel();
+
+                this.totalLearned += learnedCount;
+                document.getElementById('learning-progress').style.width = 
+                    `${Math.min(100, (this.totalLearned / 500) * 100)}%`;
+                this.updateDifficultyLevel();
+                this.epsilon = Math.max(0.1, this.epsilon * this.epsilonDecay);
+                this.memory = [];
+            }
+
+            updateDifficultyLevel() {
+                const newLevel = this.levels.find(l => this.totalLearned >= l.threshold);
+                if(newLevel && newLevel !== this.currentLevel) {
+                    this.currentLevel = newLevel;
+                    this.applyLevelSettings();
+                    console.log(`IA avançou para o nível: ${newLevel.name}`);
+                }
+            }
+
+            applyLevelSettings() {
+                this.epsilon = this.currentLevel.epsilon;
+                this.learningRate = this.currentLevel.learningRate;
+                this.searchDepth = this.currentLevel.depth;
+            }
+
+            hashState(pieces) {
+                return pieces.flatMap(row => 
+                    row.map(p => p ? `${p.color[0]}${p.type[0]}` : 'xx')
+                ).join('');
+            }
+
+            getQValue(stateKey, move) {
+                const moveKey = this.createMoveKey(move);
+                return this.qTable.get(`${stateKey}_${moveKey}`) || 0;
+            }
+
+            setQValue(stateKey, move, value) {
+                const moveKey = this.createMoveKey(move);
+                this.qTable.set(`${stateKey}_${moveKey}`, value);
+            }
+
+            createMoveKey(move) {
+                return `${move.from.row},${move.from.col}-${move.sequence.map(s => `${s.row},${s.col}`).join('|')}`;
+            }
+
+            getMaxQ(stateKey) {
+                let maxQ = -Infinity;
+                for (const [key, value] of this.qTable) {
+                    if (key.startsWith(stateKey) && value > maxQ) {
+                        maxQ = value;
+                    }
+                }
+                return maxQ !== -Infinity ? maxQ : 0;
+            }
+
+            reset() {
+                this.qTable.clear();
+                this.epsilon = 1.0;
+                this.memory = [];
+                this.totalLearned = 0;
+                this.currentLevel = this.levels[0]; 
+                document.getElementById('learning-progress').style.width = '0%';
+                this.updateDifficultyLevel();
+            }
+        }
+
         class DamasGame {
             constructor() {
                 this.boardElement = document.getElementById('board');
@@ -143,13 +385,17 @@
                 this.whiteCount = document.getElementById('white-count');
                 this.blackCount = document.getElementById('black-count');
                 this.restartBtn = document.getElementById('restart-btn');
+                this.resetAIBtn = document.getElementById('reset-ai');
                 
                 this.selectedPiece = null;
                 this.currentTurn = 'white';
                 this.pieces = Array(8).fill().map(() => Array(8).fill(null));
                 this.gameOver = false;
-                
+                this.ai = new DamaAI();
+                this.lastAIState = null;
+
                 this.initGame();
+                this.loadAIProgress();
             }
 
             initGame() {
@@ -169,6 +415,114 @@
                 }
                 this.renderBoard();
             }
+            highlightValidMoves(row, col) {
+                const moves = this.getValidMoves(row, col);
+                const hasForcedCaptures = this.hasForcedCaptures();
+                
+                this.boardElement.querySelectorAll('.square').forEach(square => {
+                    const r = parseInt(square.dataset.row);
+                    const c = parseInt(square.dataset.col);
+                    const isMove = moves.some(m => m.row === r && m.col === c);
+                    const isCapture = moves.some(m => m.row === r && m.col === c && m.isCapture);
+                    
+                    // Limpar marcadores antigos
+                    square.querySelectorAll('.path-marker, .move-preview').forEach(el => el.remove());
+                    
+                    if (isMove) {
+                        if (hasForcedCaptures && !isCapture) return;
+                        
+                        // Adicionar novo marcador
+                        const marker = document.createElement('div');
+                        marker.className = `path-marker ${isCapture ? 'capture-path' : ''}`;
+                        
+                        // Adicionar pré-visualização do movimento
+                        const preview = document.createElement('div');
+                        preview.className = 'move-preview';
+                        preview.style.backgroundColor = isCapture ? 'rgba(231, 76, 60, 0.3)' : 'rgba(46, 204, 113, 0.3)';
+                        
+                        square.appendChild(preview);
+                        square.appendChild(marker);
+                    }
+                });
+            }
+
+            evaluateBoard(board) {
+                // Função de avaliação melhorada
+                let score = 0;
+                for (let row = 0; row < 8; row++) {
+                    for (let col = 0; col < 8; col++) {
+                        const piece = board[row][col];
+                        if (!piece) continue;
+
+                        // Valor base
+                        let value = piece.type === 'king' ? 3 : 1;
+                        score += pieceValue * (piece.color === 'black' ? 1 : -1);
+
+                        // Bônus posicional
+                        if (piece.color === 'black' && row < 3) pieceValue += 0.5;
+                        if (piece.color === 'white' && row > 4) pieceValue += 0.5;
+
+                         // Penalidade por peças isoladas (sem proteção)
+                        if (!this.calculateDefense(board, row, col)) pieceValue -= 0.5;
+
+                        score += pieceValue;
+
+
+                        // Bônus de defesa
+                        const defenseBonus = this.calculateDefense(board, row, col) * 0.3;
+
+                        // Bônus de ataque
+                        const attackBonus = this.calculateAttackPotential(board, row, col) * 0.4;
+
+                        score += (value + positionalWeight + defenseBonus + attackBonus) 
+                            * (piece.color === 'black' ? 1 : -1);
+                    }
+                }
+                return score;
+            }
+
+            calculateDefense(board, row, col) {
+                // Verifica se a peça está protegida por outras
+                let protection = 0;
+                const neighbors = [
+                    [row-1, col-1], [row-1, col+1],
+                    [row+1, col-1], [row+1, col+1]
+                ];
+                
+                neighbors.forEach(([r, c]) => {
+                    if (r >= 0 && r < 8 && c >= 0 && c < 8) {
+                        if (board[r][c]?.color === board[row][col].color) {
+                            protection += 0.5;
+                        }
+                    }
+                });
+                return protection;
+            }
+
+            calculateAttackPotential(board, row, col) {
+                // Calcula possíveis capturas futuras
+                let attackPotential = 0;
+                const piece = board[row][col];
+                if (!piece) return 0;
+
+                const directions = [[-1,-1],[-1,1],[1,-1],[1,1]];
+                directions.forEach(([dx, dy]) => {
+                    let x = row + dx;
+                    let y = col + dy;
+                    let steps = 0;
+                    
+                    while (x >= 0 && x < 8 && y >= 0 && y < 8) {
+                        if (board[x][y]?.color !== piece.color && board[x][y] !== null) {
+                            attackPotential += (piece.type === 'king' ? 0.5 : 1) / (steps + 1);
+                            break;
+                        }
+                        x += dx;
+                        y += dy;
+                        steps++;
+                    }
+                });
+                return attackPotential;
+            }
 
             renderBoard() {
                 this.boardElement.innerHTML = '';
@@ -176,6 +530,13 @@
                     for (let col = 0; col < 8; col++) {
                         const square = document.createElement('div');
                         square.className = `square ${(row + col) % 2 === 0 ? 'white' : 'black'}`;
+
+                        // Manter os highlights ao recarregar
+                        if (this.selectedPiece?.row === row && this.selectedPiece?.col === col) {
+                            square.classList.add('selected');
+                            // Reaplicar highlights após renderização
+                            setTimeout(() => this.highlightValidMoves(row, col), 10);
+                        }   
                         
                         const piece = this.pieces[row][col];
                         if (piece) {
@@ -229,6 +590,14 @@
                         this.renderBoard();
                     }
                 }
+                // Adicionar animação ao mover
+                if (move) {
+                    const originalSquare = this.boardElement.querySelector(
+                        `[data-row="${move.row}"][data-col="${move.col}"]`
+                    );
+                    originalSquare.style.transform = 'scale(1.1)';
+                    setTimeout(() => originalSquare.style.transform = '', 300);
+                }
             }
 
             getValidMoves(row, col, checkCapturesOnly = false) {
@@ -239,7 +608,7 @@
                 const isKing = piece.type === 'king';
                 const directions = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
 
-                // Verificar capturas (todas direções)
+                // Capturas
                 for (const [dx, dy] of directions) {
                     if (isKing) {
                         let foundOpponent = false;
@@ -290,7 +659,7 @@
 
                 if (moves.length > 0 || checkCapturesOnly) return moves;
 
-                // Movimentos simples (apenas para frente)
+                // Movimentos simples
                 if (isKing) {
                     for (const [dx, dy] of directions) {
                         let nx = row + dx;
@@ -340,65 +709,100 @@
             }
 
             aiMove() {
-                const aiPieces = [];
-                for (let row = 0; row < 8; row++) {
-                    for (let col = 0; col < 8; col++) {
-                        if (this.pieces[row][col]?.color === 'black') {
-                            aiPieces.push({ row, col });
-                        }
+                const gameStateSnapshot = {
+                    pieces: JSON.parse(JSON.stringify(this.pieces)),
+                    getAllValidMoves: (color) => this.getAllValidMoves(color)
+                };
+
+                this.ai.getMove(gameStateSnapshot).then(move => {
+                    if (!move) {
+                        this.endGame('Você venceu! ⚪');
+                        return;
                     }
-                }
 
-                const allMoves = aiPieces.flatMap(piece => 
-                    this.getValidMoves(piece.row, piece.col).map(move => ({
-                        from: piece,
-                        to: move
-                    }))
-                );
+                    this.lastAIState = this.ai.hashState(this.pieces);
+                    this.executeAIMove(move);
+                    const newState = this.ai.hashState(this.pieces);
+                    this.ai.memory.push([this.lastAIState, move]);
 
-                if (allMoves.length === 0) {
-                    this.endGame('Você venceu! ⚪');
-                    return;
-                }
-
-                const captureMoves = allMoves.filter(m => m.to.isCapture);
-                const bestMove = captureMoves.length > 0 
-                    ? captureMoves[0] 
-                    : allMoves[Math.floor(Math.random() * allMoves.length)];
-
-                this.executeAIMove(bestMove);
+                    this.currentTurn = 'white';
+                    this.renderBoard();
+                    this.updateGameInfo();
+                });
             }
 
             executeAIMove(move) {
-                this.pieces[move.to.row][move.to.col] = this.pieces[move.from.row][move.from.col];
-                this.pieces[move.from.row][move.from.col] = null;
-                
-                if (move.to.isCapture) {
-                    this.pieces[move.to.captured.row][move.to.captured.col] = null;
-                }
-                
-                this.checkPromotion(move.to.row, move.to.col);
-                this.currentTurn = 'white';
-                this.renderBoard();
-                this.updateGameInfo();
+                let currentBoard = JSON.parse(JSON.stringify(this.pieces));
+                let currentFrom = move.from;
+
+                move.sequence.forEach(step => {
+                    const tempBoard = this.simulateMoveStep(currentFrom, step, currentBoard);
+                    currentFrom = { row: step.row, col: step.col };
+                    currentBoard = tempBoard;
+                });
+
+                this.pieces = currentBoard;
+                this.checkPromotion(currentFrom.row, currentFrom.col);
+                this.logAIMove(move);
             }
 
-            highlightValidMoves(row, col) {
-                const moves = this.getValidMoves(row, col);
-                const hasForcedCaptures = this.hasForcedCaptures();
+            logAIMove(move) {
+                const moveHistory = document.getElementById('ai-moves');
+                const moveElement = document.createElement('div');
+                moveElement.textContent = `Peça ${String.fromCharCode(65 + move.from.col)}${8 - move.from.row} → 
+                                        ${String.fromCharCode(65 + move.to.col)}${8 - move.to.row}`;
                 
-                this.boardElement.querySelectorAll('.square').forEach(square => {
-                    const r = parseInt(square.dataset.row);
-                    const c = parseInt(square.dataset.col);
-                    const isMove = moves.some(m => m.row === r && m.col === c);
-                    const isCapture = moves.some(m => m.row === r && m.col === c && m.isCapture);
-                    
-                    square.classList.remove('highlight', 'capture-highlight');
-                    if (isMove) {
-                        if (hasForcedCaptures && !isCapture) return;
-                        square.classList.add(isCapture ? 'capture-highlight' : 'highlight');
+                if(move.isCapture) {
+                    moveElement.innerHTML += ' <span style="color:red">⨉</span>';
+                    moveElement.style.fontWeight = 'bold';
+                }
+                
+                moveHistory.prepend(moveElement);
+                if(moveHistory.children.length > 5) moveHistory.lastChild.remove();
+            }
+
+            simulateMoveStep(from, to, board) {
+                const newBoard = JSON.parse(JSON.stringify(board));
+                newBoard[to.row][to.col] = newBoard[from.row][from.col];
+                newBoard[from.row][from.col] = null;
+
+                if (to.isCapture) {
+                    const captureRow = from.row + (to.row - from.row) / 2;
+                    const captureCol = from.col + (to.col - from.col) / 2;
+                    newBoard[captureRow][captureCol] = null;
+                }
+
+                return newBoard;
+            }
+
+            getAllValidMoves(color) {
+                const moves = [];
+                const captureMoves = [];
+                
+                for (let row = 0; row < 8; row++) {
+                    for (let col = 0; col < 8; col++) {
+                        const piece = this.pieces[row][col];
+                        if (piece?.color === color) {
+                            const pieceMoves = this.getValidMoves(row, col);
+                            pieceMoves.forEach(move => {
+                                const moveObj = {
+                                    from: { row, col },
+                                    to: move,
+                                    sequence: [move],
+                                    isCapture: move.isCapture
+                                };
+                                
+                                if (move.isCapture) {
+                                    captureMoves.push(moveObj);
+                                } else {
+                                    moves.push(moveObj);
+                                }
+                            });
+                        }
                     }
-                });
+                }
+                
+                return captureMoves.length > 0 ? captureMoves : moves;
             }
 
             updateGameInfo() {
@@ -420,10 +824,10 @@
                 }
             }
 
-            hasForcedCaptures() {
+            hasForcedCaptures(color = 'white') {
                 for (let row = 0; row < 8; row++) {
                     for (let col = 0; col < 8; col++) {
-                        if (this.pieces[row][col]?.color === 'white' && 
+                        if (this.pieces[row][col]?.color === color && 
                             this.getValidMoves(row, col, true).length > 0) {
                             return true;
                         }
@@ -443,20 +847,93 @@
             endGame(message) {
                 this.gameOver = true;
                 this.turnIndicator.textContent = message;
+                
+                let reward = 0;
+                const whitePieces = parseInt(this.whiteCount.textContent);
+                const blackPieces = parseInt(this.blackCount.textContent);
+
+                // Recompensa baseada no resultado
+                if (message.includes('IA')) {
+                    reward = 150 + (12 - whitePieces) * 20;
+                } else if (message.includes('Você')) {
+                    reward = -200 - (12 - blackPieces) * 25;
+                }
+                
+                const kings = this.countKings();
+                reward += kings.black * 15;
+                reward -= kings.white * 20;
+
+                reward -= Math.floor(performance.now() / 1000) * 0.1; // Penaliza jogadas lentas de forma mais suave
+
+                this.ai.updateQValue(reward, this.ai.hashState(this.pieces));
+                this.saveAIProgress();
+            }
+
+            saveAIProgress() {
+                localStorage.setItem('damaAI', JSON.stringify([...this.qTable.entries()]));
+            }
+
+            loadAIProgress() {
+                const savedAI = localStorage.getItem('damaAI');
+                if (savedAI) {
+                    this.ai.qTable = new Map(JSON.parse(savedAI));
+                    //this.ai.epsilon = 0.3;
+                    this.ai.updateDifficultyLevel();
+                }
             }
 
             addEventListeners() {
                 this.restartBtn.addEventListener('click', () => {
-                    this.selectedPiece = null;
-                    this.currentTurn = 'white';
-                    this.gameOver = false;
-                    this.pieces = Array(8).fill().map(() => Array(8).fill(null));
-                    this.setupBoard();
-                    this.updateGameInfo();
+                    this.resetGame();
                 });
+
+                this.resetAIBtn.addEventListener('click', () => {
+                    this.ai.reset();
+                    localStorage.removeItem('damaAI');
+                    this.resetGame();
+                });
+            }
+
+            resetGame() {
+                this.selectedPiece = null;
+                this.currentTurn = 'white';
+                this.gameOver = false;
+                this.pieces = Array(8).fill().map(() => Array(8).fill(null));
+                this.setupBoard();
+                this.updateGameInfo();
+            }
+
+            endGame(message) {
+                // Recompensa aprimorada
+                let reward = 0;
+                const whitePieces = parseInt(this.whiteCount.textContent);
+                const blackPieces = parseInt(this.blackCount.textContent);
+                
+                // Recompensa baseada no resultado
+                if (message.includes('IA')) reward += 200 + (12 - whitePieces) * 15;
+                if (message.includes('Você')) reward -= 300 - (12 - blackPieces) * 20;
+                
+                // Bônus por peças promovidas
+                const kings = this.countKings();
+                reward += kings.black * 10;
+                reward -= kings.white * 15;
+
+                // Penalidade por tempo de jogo
+                reward -= Math.floor(performance.now()/1000); // Penaliza jogadas lentas
+
+                this.ai.updateQValue(reward, this.ai.hashState(this.pieces));
+            }
+
+            countKings() {
+                let kings = { white: 0, black: 0 };
+                this.pieces.forEach(row => row.forEach)(p => {
+                    if (p?.type === 'king') kings[p.color]++;
+                });
+                return kings;
             }
         }
 
+        // Inicializa o jogo
         new DamasGame();
     </script>
 </body>
