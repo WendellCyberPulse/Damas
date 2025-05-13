@@ -223,6 +223,8 @@
                 this.epsilonDecay = 0.98;
                 this.memory = [];
                 this.totalLearned = 0;
+                this.replayHistory = [];  // salvar últimas N partidas
+                this.maxHistory = 10;
                 this.levels = [
                 { 
                     name: "Iniciante",
@@ -258,6 +260,23 @@
 
             }
 
+            simulateMovePreview(pieces, move) {
+                let board = JSON.parse(JSON.stringify(pieces));
+                let from = move.from;
+                move.sequence.forEach(step => {
+                    board[step.row][step.col] = board[from.row][from.col];
+                    board[from.row][from.col] = null;
+                    if (step.isCapture) {
+                        const cr = from.row + (step.row - from.row) / 2;
+                        const cc = from.col + (step.col - from.col) / 2;
+                        board[cr][cc] = null;
+                    }
+                    from = { row: step.row, col: step.col };
+                });
+                return board;
+            }
+
+
             getMoveDepth() {
                 switch (this.currentLevel.name) {
                     case "Iniciante":
@@ -272,6 +291,30 @@
                         return 1;
                 }
             }
+
+            evaluateTactics(board) {
+                let score = 0;
+
+                for (let row = 0; row < 8; row++) {
+                    for (let col = 0; col < 8; col++) {
+                        const piece = board[row][col];
+                        if (!piece || piece.color !== 'black') continue;
+
+                        let value = piece.type === 'king' ? 3 : 1;
+
+                        // Evita peças desprotegidas
+                        if (!this.calculateDefense(board, row, col)) value -= 0.5;
+
+                        // Valoriza cantos
+                        if ((row === 0 || row === 7) && (col === 0 || col === 7)) value += 0.5;
+
+                        score += value;
+                    }
+                }
+
+                return score;
+            }
+
             
 
             async getMove(gameState) {
@@ -279,6 +322,20 @@
                 if (validMoves.length === 0) return null;
 
                 const depth = this.getMoveDepth();
+
+                if (this.playerPatterns && this.playerPatterns.length > 0) {
+                    for (const move of validMoves) {
+                        const simulated = this.simulateMovePreview(gameState.pieces, move);
+                        const hash = this.hashState(simulated);
+                        const similarity = this.playerPatterns.filter(p => p === hash).length;
+
+                        if (similarity > 0) {
+                            console.log('Imitando estratégia do jogador!');
+                            return move;
+                        }
+                    }
+                }
+
 
                 if (Math.random() < this.epsilon) {
                     // Exploração: escolhe um movimento aleatório
@@ -291,11 +348,16 @@
                     for (const move of validMoves) {
                         const stateKey = this.hashState(gameState.pieces);
                         const q = this.getQValue(stateKey, move);
-                        if (q > maxQ) {
-                            maxQ = q;
+                        const simulated = this.simulateMovePreview(gameState.pieces, move);
+                        const tScore = this.evaluateTactics(simulated);
+
+                        const totalScore = q + tScore; // combinar Q-learning com heurística
+                        if (totalScore > maxQ) {
+                            maxQ = totalScore;
                             bestMove = move;
                         }
                     }
+
 
                     return bestMove || validMoves[Math.floor(Math.random() * validMoves.length)];
                 }
@@ -303,13 +365,19 @@
 
             updateQValue(reward, newState) {
                 //let learnedCount = 0;
-                this.memory.forEach(([stateKey, move]) => {
+                
+                const isDefeat = reward < 0;
+                const multiplier = isDefeat ? 1.5 : 1; // Aprende mais com derrotas
+
+                this.memory.forEach(([stateKey, move], index) => {
                     const oldQ = this.getQValue(stateKey, move);
                     const nextMaxQ = this.getMaxQ(newState);
-                    const newQ = oldQ + this.learningRate * (reward + this.discountFactor * nextMaxQ - oldQ);
+                    const adjustedReward = reward - (this.memory.length - index); // penaliza jogadas mais recentes
+                    const newQ = oldQ + this.learningRate * multiplier * (adjustedReward + this.discountFactor * nextMaxQ - oldQ);
                     this.setQValue(stateKey, move, newQ);
-                   // learnedCount++;
                 });
+
+
                 this.epsilon = Math.max(this.currentLevel.epsilon, this.epsilon * this.epsilonDecay);
                 this.totalLearned += 1;
                 this.updateDifficultyLevel();
@@ -320,6 +388,23 @@
                 this.updateDifficultyLevel();
                 this.epsilon = Math.max(0.1, this.epsilon * this.epsilonDecay);
                 this.memory = [];
+
+
+                this.replayHistory.push({
+                    states: this.memory.map(([stateKey, move]) => ({
+                        stateKey,
+                        move: this.createMoveKey(move)
+                    })),
+                    reward,
+                    result: reward > 0 ? 'win' : 'loss',
+                    timestamp: Date.now()
+                });
+
+                if (this.replayHistory.length > this.maxHistory) {
+                    this.replayHistory.shift(); // remove o mais antigo
+                }
+
+
             }
 
             updateDifficultyLevel() {
@@ -455,7 +540,7 @@
                         if (!piece) continue;
 
                         // Valor base
-                        let value = piece.type === 'king' ? 3 : 1;
+                        let pieceValue = piece.type === 'king' ? 3 : 1;
                         score += pieceValue * (piece.color === 'black' ? 1 : -1);
 
                         // Bônus posicional
@@ -465,17 +550,12 @@
                          // Penalidade por peças isoladas (sem proteção)
                         if (!this.calculateDefense(board, row, col)) pieceValue -= 0.5;
 
-                        score += pieceValue;
-
-
-                        // Bônus de defesa
                         const defenseBonus = this.calculateDefense(board, row, col) * 0.3;
-
-                        // Bônus de ataque
                         const attackBonus = this.calculateAttackPotential(board, row, col) * 0.4;
 
-                        score += (value + positionalWeight + defenseBonus + attackBonus) 
-                            * (piece.color === 'black' ? 1 : -1);
+                        score += (pieceValue + defenseBonus + attackBonus) * (piece.color === 'black' ? 1 : -1);
+
+                        
                     }
                 }
                 return score;
@@ -775,35 +855,84 @@
                 return newBoard;
             }
 
+            findCaptureSequences(fromRow, fromCol, board, visited = new Set()) {
+                const piece = board[fromRow][fromCol];
+                if (!piece) return [];
+
+                const sequences = [];
+                const directions = [[-1,-1], [-1,1], [1,-1], [1,1]];
+                const key = `${fromRow},${fromCol}`;
+                visited.add(key);
+
+                for (const [dx, dy] of directions) {
+                    const enemyRow = fromRow + dx;
+                    const enemyCol = fromCol + dy;
+                    const landRow = fromRow + dx * 2;
+                    const landCol = fromCol + dy * 2;
+
+                    if (
+                        this.isValidPosition(landRow, landCol) &&
+                        board[enemyRow]?.[enemyCol] &&
+                        board[enemyRow][enemyCol].color !== piece.color &&
+                        board[landRow][landCol] === null
+                    ) {
+                        // Simular movimento
+                        const tempBoard = JSON.parse(JSON.stringify(board));
+                        tempBoard[landRow][landCol] = tempBoard[fromRow][fromCol];
+                        tempBoard[fromRow][fromCol] = null;
+                        tempBoard[enemyRow][enemyCol] = null;
+
+                        const nextSequences = this.findCaptureSequences(landRow, landCol, tempBoard, new Set(visited));
+                        if (nextSequences.length > 0) {
+                            for (const seq of nextSequences) {
+                                sequences.push([{ row: landRow, col: landCol, isCapture: true }, ...seq]);
+                            }
+                        } else {
+                            sequences.push([{ row: landRow, col: landCol, isCapture: true }]);
+                        }
+                    }
+                }
+
+                return sequences;
+            }
+
+
             getAllValidMoves(color) {
                 const moves = [];
                 const captureMoves = [];
-                
+
                 for (let row = 0; row < 8; row++) {
                     for (let col = 0; col < 8; col++) {
                         const piece = this.pieces[row][col];
                         if (piece?.color === color) {
-                            const pieceMoves = this.getValidMoves(row, col);
-                            pieceMoves.forEach(move => {
-                                const moveObj = {
-                                    from: { row, col },
-                                    to: move,
-                                    sequence: [move],
-                                    isCapture: move.isCapture
-                                };
-                                
-                                if (move.isCapture) {
-                                    captureMoves.push(moveObj);
-                                } else {
-                                    moves.push(moveObj);
-                                }
-                            });
+                            const captureSeqs = this.findCaptureSequences(row, col, this.pieces);
+                            if (captureSeqs.length > 0) {
+                                captureSeqs.forEach(seq => {
+                                    captureMoves.push({
+                                        from: { row, col },
+                                        to: seq[seq.length - 1],
+                                        sequence: seq,
+                                        isCapture: true
+                                    });
+                                });
+                            } else {
+                                const basicMoves = this.getValidMoves(row, col);
+                                basicMoves.forEach(move => {
+                                    moves.push({
+                                        from: { row, col },
+                                        to: move,
+                                        sequence: [move],
+                                        isCapture: move.isCapture
+                                    });
+                                });
+                            }
                         }
                     }
                 }
-                
+
                 return captureMoves.length > 0 ? captureMoves : moves;
             }
+
 
             updateGameInfo() {
                 let white = 0, black = 0;
@@ -856,7 +985,7 @@
                 if (message.includes('IA')) {
                     reward = 150 + (12 - whitePieces) * 20;
                 } else if (message.includes('Você')) {
-                    reward = -200 - (12 - blackPieces) * 25;
+                    reward -= 400 - (12 - blackPieces) * 25;
                 }
                 
                 const kings = this.countKings();
@@ -870,15 +999,20 @@
             }
 
             saveAIProgress() {
-                localStorage.setItem('damaAI', JSON.stringify([...this.qTable.entries()]));
+                localStorage.setItem('damaAI', JSON.stringify([...this.ai.qTable.entries()]));
+                localStorage.setItem('damaHistory', JSON.stringify(this.ai.replayHistory));
             }
+
 
             loadAIProgress() {
                 const savedAI = localStorage.getItem('damaAI');
+                const savedHistory = localStorage.getItem('damaHistory');
                 if (savedAI) {
                     this.ai.qTable = new Map(JSON.parse(savedAI));
-                    //this.ai.epsilon = 0.3;
                     this.ai.updateDifficultyLevel();
+                }
+                if (savedHistory) {
+                    this.ai.replayHistory = JSON.parse(savedHistory);
                 }
             }
 
@@ -922,15 +1056,45 @@
                 reward -= Math.floor(performance.now()/1000); // Penaliza jogadas lentas
 
                 this.ai.updateQValue(reward, this.ai.hashState(this.pieces));
+
+                if (message.includes('Você')) {
+                    if (!this.ai.playerPatterns) this.ai.playerPatterns = [];
+
+                    // Salva os padrões do jogador
+                    const playerStates = this.moveHistoryWhite || [];
+                    playerStates.forEach(state => {
+                        const mirrored = this.ai.mirrorPlayerState(state.stateKey);
+                        this.ai.playerPatterns.push(mirrored);
+                        if (this.ai.playerPatterns.length > 30) this.ai.playerPatterns.shift();
+                    });
+                }
+
             }
 
             countKings() {
                 let kings = { white: 0, black: 0 };
-                this.pieces.forEach(row => row.forEach)(p => {
-                    if (p?.type === 'king') kings[p.color]++;
+                this.pieces.forEach(row => {
+                    row.forEach(p => {
+                        if (p?.type === 'king') kings[p.color]++;
+                    });
                 });
                 return kings;
             }
+
+            mirrorPlayerState(stateKey) {
+                // Converte o estado do jogador para um equivalente invertido (espelhado)
+                const mirrored = [];
+                const tokens = stateKey.match(/.{1,2}/g); // separa em blocos de 2 caracteres
+
+                for (let row = 0; row < 8; row++) {
+                    const reversedRow = tokens.slice(row * 8, (row + 1) * 8).reverse();
+                    mirrored.push(...reversedRow);
+                }
+
+                return mirrored.join('');
+            }
+
+
         }
 
         // Inicializa o jogo
